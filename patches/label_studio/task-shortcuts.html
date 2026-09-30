@@ -1,0 +1,884 @@
+﻿<script nonce="{{request.csp_nonce}}">
+  (function() {
+    var shortcutInProgress = false;
+    var clearAnnotationInProgress = false;
+    var clearButtonObserver = null;
+    var CLEAR_BUTTON_ID = "label-studio-clear-annotation";
+    var POSE_POINT_BUTTON_ID = "label-studio-pose-point-scale";
+    var POSE_POINT_STORAGE_PREFIX = "label-studio-pose-point-scale-v1:";
+    var POSE_PROJECT_IDS = { "8": true, "9": true, "22": true };
+    var posePointScaleProjectId = null;
+    var posePointsDoubled = false;
+    var DOG_POSE_PROJECT_ID = "22";
+    var DETECTION_BOX_BUTTON_ID = "label-studio-detection-box-visibility";
+    var DETECTION_BOX_STORAGE_PREFIX = "label-studio-detection-box-visibility-v1:";
+    var detectionBoxProjectId = null;
+    var detectionBoxesHidden = false;
+    var selectedDetectionBoxTool = null;
+    var POSE_KEYPOINT_LABELS = {
+      "鼻尖": true,
+      "左眼": true,
+      "右眼": true,
+      "颈背": true,
+      "尾根": true,
+      "左前肩": true,
+      "左前肘": true,
+      "左前爪": true,
+      "右前肩": true,
+      "右前肘": true,
+      "右前爪": true,
+      "左后髋": true,
+      "左后膝": true,
+      "左后爪": true,
+      "右后髋": true,
+      "右后膝": true,
+      "右后爪": true
+    };
+    var VIDEO_FRAME_PROJECT_ID = "18";
+    var VIDEO_FRAME_SHORTCUT_VERSION = "20260717-1";
+
+    window.__catBehaviorVideoFrameShortcuts = VIDEO_FRAME_SHORTCUT_VERSION;
+
+    function isDisabled(button) {
+      return !button ||
+        button.disabled ||
+        button.getAttribute("aria-disabled") === "true" ||
+        button.closest("[aria-disabled=true]");
+    }
+
+    function sleep(ms) {
+      return new Promise(function(resolve) {
+        window.setTimeout(resolve, ms);
+      });
+    }
+
+    function getApp() {
+      return window.Htx;
+    }
+
+    function getDataManagerStore() {
+      return window.DM || (window.dataManager && window.dataManager.store) || null;
+    }
+
+    function isDataManagerMode() {
+      var dm = getDataManagerStore();
+
+      return !!(dm && dm.dataStore && typeof dm.startLabeling === "function");
+    }
+
+    function getTaskId() {
+      var app = getApp();
+      return app && app.task ? app.task.id : null;
+    }
+
+    function isEditableTarget(target) {
+      if (!target || !target.closest) return false;
+
+      return !!target.closest(
+        "input,textarea,select,[contenteditable='true'],[contenteditable='plaintext-only'],[role='textbox']"
+      );
+    }
+
+    function isVideoFrameShortcutContext() {
+      var projectPath = "/projects/" + VIDEO_FRAME_PROJECT_ID + "/";
+
+      return window.location.pathname.indexOf(projectPath) !== -1 &&
+        new URLSearchParams(window.location.search).has("task");
+    }
+
+    function isVisibleElement(element) {
+      if (!element || !element.isConnected) return false;
+
+      var style = window.getComputedStyle(element);
+      var rect = element.getBoundingClientRect();
+
+      return style.display !== "none" &&
+        style.visibility !== "hidden" &&
+        rect.width > 0 &&
+        rect.height > 0;
+    }
+
+    function clickVideoFrameControl(direction) {
+      var label = direction < 0 ? "Step backward" : "Step forward";
+      var buttons = Array.prototype.slice.call(
+        document.querySelectorAll('button[aria-label="' + label + '"]')
+      );
+
+      for (var i = 0; i < buttons.length; i++) {
+        var button = buttons[i];
+        if (!isVisibleElement(button)) continue;
+
+        if (!isDisabled(button)) button.click();
+        return true;
+      }
+
+      return false;
+    }
+
+    function getVideoModel() {
+      var app = getApp();
+      var annotation = app && app.annotationStore ? app.annotationStore.selected : null;
+      var names = annotation && annotation.names;
+
+      return names && typeof names.get === "function" ? names.get("video") : null;
+    }
+
+    function stepVideoFrame(direction) {
+      if (!isVideoFrameShortcutContext()) return false;
+      if (clickVideoFrameControl(direction)) return true;
+
+      var video = getVideoModel();
+      if (!video || typeof video.setFrame !== "function") return false;
+
+      var player = video.ref && video.ref.current;
+      if (player && player.playing && typeof player.pause === "function") {
+        player.pause();
+      }
+
+      var currentFrame = Math.round(Number(video.currentFrame || video.frame || 1));
+      var lastFrame = Math.max(1, Math.round(Number(video.length || currentFrame)));
+      var nextFrame = Math.max(1, Math.min(lastFrame, currentFrame + direction));
+
+      if (nextFrame !== currentFrame) video.setFrame(nextFrame);
+      return true;
+    }
+
+    function getResultCount(annotation) {
+      var results = annotation && annotation.results;
+
+      if (!results) return 0;
+      if (typeof results.length === "number") return results.length;
+      if (typeof results.size === "number") return results.size;
+      return 0;
+    }
+
+    function getSelectedAnnotation() {
+      var app = getApp();
+      return app && app.annotationStore ? app.annotationStore.selected : null;
+    }
+
+    function isPrediction(annotation) {
+      return annotation && String(annotation.type || "").toLowerCase() === "prediction";
+    }
+
+    function getCookie(name) {
+      var prefix = name + "=";
+      var cookies = String(document.cookie || "").split(";");
+
+      for (var i = 0; i < cookies.length; i++) {
+        var cookie = cookies[i].trim();
+        if (cookie.indexOf(prefix) === 0) {
+          return decodeURIComponent(cookie.slice(prefix.length));
+        }
+      }
+      return "";
+    }
+
+    function getCsrfToken() {
+      var input = document.querySelector('input[name="csrfmiddlewaretoken"]');
+      var meta = document.querySelector('meta[name="csrf-token"]');
+
+      return getCookie("csrftoken") ||
+        (input && input.value) ||
+        (meta && meta.getAttribute("content")) ||
+        "";
+    }
+
+    async function deleteApiResource(url) {
+      var headers = {
+        "Accept": "application/json",
+        "X-Requested-With": "XMLHttpRequest"
+      };
+      var csrfToken = getCsrfToken();
+
+      if (csrfToken) headers["X-CSRFToken"] = csrfToken;
+
+      var response = await window.fetch(url, {
+        method: "DELETE",
+        credentials: "same-origin",
+        headers: headers
+      });
+
+      if (!response.ok) {
+        var detail = "HTTP " + response.status;
+        try {
+          var body = await response.json();
+          detail = body.detail || body.validation_errors || body.error || detail;
+          if (typeof detail !== "string") detail = JSON.stringify(detail);
+        } catch (error) {
+          // The status code is enough when the response has no JSON body.
+        }
+        throw new Error(detail);
+      }
+    }
+
+    function annotationCanBeCleared(annotation) {
+      if (!annotation) return false;
+      if (isPrediction(annotation)) return !!annotation.draftId;
+      if (annotation.pk && !isPrediction(annotation)) return true;
+      if (annotation.draftId) return true;
+      return getResultCount(annotation) > 0;
+    }
+
+    function updateClearButtonState() {
+      var button = document.getElementById(CLEAR_BUTTON_ID);
+      if (!button) return;
+
+      var annotation = getSelectedAnnotation();
+      var enabled = annotationCanBeCleared(annotation) && !clearAnnotationInProgress;
+      var buttonText = clearAnnotationInProgress ? "正在清空..." : "清空标注";
+
+      button.disabled = !enabled;
+      button.setAttribute("aria-disabled", enabled ? "false" : "true");
+      if (button.textContent !== buttonText) button.textContent = buttonText;
+      button.title = enabled ? "删除当前任务的人工标注并恢复为未标注状态" : "当前没有可清空的人工标注";
+    }
+
+    async function clearCurrentAnnotation() {
+      if (clearAnnotationInProgress) return;
+
+      var annotation = getSelectedAnnotation();
+      if (!annotationCanBeCleared(annotation)) {
+        updateClearButtonState();
+        return;
+      }
+
+      var confirmed = window.confirm(
+        "确认清空当前任务的人工标注吗？\n\n此操作会删除已保存的人工标注，且不可撤销；预标注不会被删除。"
+      );
+      if (!confirmed) return;
+
+      clearAnnotationInProgress = true;
+      updateClearButtonState();
+
+      try {
+        if (annotation.pk && !isPrediction(annotation)) {
+          await deleteApiResource("/api/annotations/" + encodeURIComponent(annotation.pk) + "/");
+        } else if (annotation.draftId) {
+          await deleteApiResource("/api/drafts/" + encodeURIComponent(annotation.draftId) + "/");
+        }
+
+        window.location.reload();
+      } catch (error) {
+        clearAnnotationInProgress = false;
+        updateClearButtonState();
+        window.alert("清空标注失败：" + (error && error.message ? error.message : String(error)));
+      }
+    }
+
+    function getCurrentProjectId() {
+      var match = window.location.pathname.match(/\/projects\/(\d+)(?:\/|$)/);
+      return match ? match[1] : null;
+    }
+
+    function isDetectionBoxVisibilityContext() {
+      if (getCurrentProjectId() !== DOG_POSE_PROJECT_ID) return false;
+
+      return !!document.querySelector(
+        '[data-testid="bottombar-update-button"],' +
+        '[data-testid="bottombar-submit-button"],' +
+        '[data-testid="bottombar-accept-button"]'
+      );
+    }
+
+    function loadDetectionBoxVisibilityState() {
+      var projectId = getCurrentProjectId();
+      if (detectionBoxProjectId === projectId) return;
+
+      detectionBoxProjectId = projectId;
+      detectionBoxesHidden = false;
+      if (!projectId) return;
+
+      try {
+        detectionBoxesHidden = window.localStorage.getItem(
+          DETECTION_BOX_STORAGE_PREFIX + projectId
+        ) === "hidden";
+      } catch (error) {
+        // The toggle still works for the current page when storage is unavailable.
+      }
+    }
+
+    function saveDetectionBoxVisibilityState() {
+      if (!detectionBoxProjectId) return;
+
+      try {
+        window.localStorage.setItem(
+          DETECTION_BOX_STORAGE_PREFIX + detectionBoxProjectId,
+          detectionBoxesHidden ? "hidden" : "visible"
+        );
+      } catch (error) {
+        // The current page state is enough when storage is unavailable.
+      }
+    }
+
+    function getDetectionBoxRows() {
+      return Array.prototype.slice.call(document.querySelectorAll(
+        '[role="treeitem"].lsf-tree__node_type_rectangleregion'
+      ));
+    }
+
+    function isDetectionBoxRowHidden(row) {
+      return !!(row && row.classList.contains("lsf-tree__node_hidden"));
+    }
+
+    function setDetectionBoxRowHidden(row, hidden) {
+      if (!row || isDetectionBoxRowHidden(row) === hidden) return false;
+
+      var button = row.querySelector(
+        ".lsf-outliner-item__control_type_visibility button"
+      );
+      if (!button || isDisabled(button)) return false;
+
+      // Reuse Label Studio's own visibility action. It changes only canvas/UI
+      // state and leaves the rectangle result intact for save and export.
+      button.click();
+      return true;
+    }
+
+    function applyDetectionBoxVisibility(forceVisible) {
+      if (!isDetectionBoxVisibilityContext()) return 0;
+
+      loadDetectionBoxVisibilityState();
+      var rows = getDetectionBoxRows();
+
+      rows.forEach(function(row) {
+        if (detectionBoxesHidden) {
+          setDetectionBoxRowHidden(row, true);
+        } else if (forceVisible) {
+          setDetectionBoxRowHidden(row, false);
+        }
+      });
+      return rows.length;
+    }
+
+    function updateDetectionBoxButtonState(boxCount) {
+      var button = document.getElementById(DETECTION_BOX_BUTTON_ID);
+      if (!button) return;
+
+      loadDetectionBoxVisibilityState();
+      var buttonText = detectionBoxesHidden ? "显示检测框" : "隐藏检测框";
+
+      if (button.textContent !== buttonText) button.textContent = buttonText;
+      button.setAttribute("aria-pressed", detectionBoxesHidden ? "true" : "false");
+      button.title = detectionBoxesHidden ?
+        "检测框已隐藏；点击或按 H 恢复显示。姿态点和标注数据不受影响" :
+        "隐藏全部矩形检测框以便标注姿态点；点击或按 H 切换。不会删除标注数据";
+      button.style.color = detectionBoxesHidden ? "#175cd3" : "#344054";
+      button.style.borderColor = detectionBoxesHidden ? "#1570ef" : "#98a2b3";
+      button.style.background = detectionBoxesHidden ? "#eff8ff" : "#fff";
+      button.dataset.detectionBoxCount = String(boxCount || 0);
+    }
+
+    function getSelectedDetectionBoxTool() {
+      var selectedLabels = Array.prototype.slice.call(document.querySelectorAll(
+        ".lsf-main-view__annotation .lsf-label.lsf-label_selected"
+      ));
+
+      for (var i = 0; i < selectedLabels.length; i++) {
+        var textElement = selectedLabels[i].querySelector(".lsf-label__text");
+        var labelText = String(textElement && textElement.textContent || "")
+          .replace(/\s+/g, " ")
+          .trim();
+
+        if (POSE_KEYPOINT_LABELS[labelText]) return "pose:" + labelText;
+        if (labelText === "dog" || labelText.indexOf("dog ") === 0) return "box:dog";
+      }
+      return null;
+    }
+
+    function syncDetectionBoxVisibilityWithSelectedTool() {
+      if (!isDetectionBoxVisibilityContext()) return false;
+
+      var selectedTool = getSelectedDetectionBoxTool();
+      if (!selectedTool) {
+        selectedDetectionBoxTool = null;
+        return false;
+      }
+      if (selectedTool === selectedDetectionBoxTool) return false;
+
+      selectedDetectionBoxTool = selectedTool;
+      loadDetectionBoxVisibilityState();
+      detectionBoxesHidden = selectedTool.indexOf("pose:") === 0;
+      saveDetectionBoxVisibilityState();
+      updateDetectionBoxButtonState(applyDetectionBoxVisibility(true));
+      return true;
+    }
+
+    function toggleDetectionBoxVisibility() {
+      if (!isDetectionBoxVisibilityContext()) return;
+
+      loadDetectionBoxVisibilityState();
+      selectedDetectionBoxTool = getSelectedDetectionBoxTool();
+      detectionBoxesHidden = !detectionBoxesHidden;
+      saveDetectionBoxVisibilityState();
+      updateDetectionBoxButtonState(applyDetectionBoxVisibility(true));
+    }
+
+    function isPosePointScaleContext() {
+      var projectId = getCurrentProjectId();
+
+      return !!(projectId && POSE_PROJECT_IDS[projectId] &&
+        new URLSearchParams(window.location.search).has("task"));
+    }
+
+    function loadPosePointScaleState() {
+      var projectId = getCurrentProjectId();
+      if (posePointScaleProjectId === projectId) return;
+
+      posePointScaleProjectId = projectId;
+      posePointsDoubled = false;
+      if (!projectId) return;
+
+      try {
+        posePointsDoubled = window.localStorage.getItem(
+          POSE_POINT_STORAGE_PREFIX + projectId
+        ) === "2";
+      } catch (error) {
+        // The toggle still works for the current page when storage is unavailable.
+      }
+    }
+
+    function savePosePointScaleState() {
+      if (!posePointScaleProjectId) return;
+
+      try {
+        window.localStorage.setItem(
+          POSE_POINT_STORAGE_PREFIX + posePointScaleProjectId,
+          posePointsDoubled ? "2" : "1"
+        );
+      } catch (error) {
+        // The current page state is enough when storage is unavailable.
+      }
+    }
+
+    function getPosePointRegions() {
+      var annotation = getSelectedAnnotation();
+      var regionStore = annotation && annotation.regionStore;
+      var regions = regionStore && regionStore.regions;
+      var result = [];
+
+      if (!regions || typeof regions.forEach !== "function") return result;
+      regions.forEach(function(region) {
+        if (region && String(region.type || "").toLowerCase() === "keypointregion") {
+          result.push(region);
+        }
+      });
+      return result;
+    }
+
+    function getPosePointBaseRadius(region, shape) {
+      var canvasWidth = Number(region && region.canvasWidth);
+      var zoomScale = Number(region && region.parent && region.parent.zoomScale) || 1;
+      var baseRadius = Number.isFinite(canvasWidth) ? Math.max(canvasWidth, 2) / zoomScale : NaN;
+
+      if (!Number.isFinite(baseRadius) || baseRadius <= 0) {
+        baseRadius = Number(shape && shape.getAttr && shape.getAttr("radius"));
+      }
+      return Number.isFinite(baseRadius) && baseRadius > 0 ? baseRadius : null;
+    }
+
+    function applyPosePointScale() {
+      if (!isPosePointScaleContext()) return 0;
+
+      loadPosePointScaleState();
+      var regions = getPosePointRegions();
+      var layers = [];
+
+      regions.forEach(function(region) {
+        var shape = region.shapeRef;
+        if (!shape || typeof shape.getAttr !== "function" || typeof shape.setAttr !== "function") return;
+
+        var baseRadius = getPosePointBaseRadius(region, shape);
+        if (!baseRadius) return;
+
+        var radius = baseRadius * (posePointsDoubled ? 2 : 1);
+        var currentRadius = Number(shape.getAttr("radius"));
+        if (!Number.isFinite(currentRadius) || Math.abs(currentRadius - radius) > 0.01) {
+          shape.setAttr("radius", radius);
+        }
+
+        var layer = typeof shape.getLayer === "function" ? shape.getLayer() : null;
+        if (layer && layers.indexOf(layer) === -1) layers.push(layer);
+      });
+
+      layers.forEach(function(layer) {
+        if (typeof layer.batchDraw === "function") layer.batchDraw();
+      });
+      return regions.length;
+    }
+
+    function updatePosePointButtonState(pointCount) {
+      var button = document.getElementById(POSE_POINT_BUTTON_ID);
+      if (!button) return;
+
+      loadPosePointScaleState();
+      button.textContent = posePointsDoubled ? "恢复点大小" : "姿态点 ×2";
+      button.setAttribute("aria-pressed", posePointsDoubled ? "true" : "false");
+      button.title = posePointsDoubled ?
+        "将姿态关键点恢复为原始显示大小；不会修改关键点坐标" :
+        "将姿态关键点的显示和点击尺寸放大为 2 倍；不会修改关键点坐标";
+      button.style.color = posePointsDoubled ? "#175cd3" : "#344054";
+      button.style.borderColor = posePointsDoubled ? "#1570ef" : "#98a2b3";
+      button.style.background = posePointsDoubled ? "#eff8ff" : "#fff";
+      button.dataset.posePointCount = String(pointCount || 0);
+    }
+
+    function togglePosePointScale() {
+      loadPosePointScaleState();
+      posePointsDoubled = !posePointsDoubled;
+      savePosePointScaleState();
+      updatePosePointButtonState(applyPosePointScale());
+    }
+
+    function installClearAnnotationButton() {
+      var existing = document.getElementById(CLEAR_BUTTON_ID);
+      if (existing) {
+        updateClearButtonState();
+        return;
+      }
+
+      var anchor = findFirstButton([
+        "bottombar-update-button",
+        "bottombar-submit-button",
+        "bottombar-accept-button"
+      ]);
+      if (!anchor || !anchor.parentNode) return;
+
+      var button = document.createElement("button");
+      button.id = CLEAR_BUTTON_ID;
+      button.type = "button";
+      button.className = anchor.className;
+      button.setAttribute("data-testid", "clear-current-annotation");
+      button.style.marginRight = "8px";
+      button.style.color = "#b42318";
+      button.style.borderColor = "#d92d20";
+      button.style.background = "#fff";
+      button.addEventListener("click", function(event) {
+        event.preventDefault();
+        event.stopPropagation();
+        clearCurrentAnnotation();
+      });
+
+      anchor.parentNode.insertBefore(button, anchor);
+      updateClearButtonState();
+    }
+
+    function installPosePointScaleButton() {
+      var existing = document.getElementById(POSE_POINT_BUTTON_ID);
+
+      if (!isPosePointScaleContext()) {
+        if (existing) existing.remove();
+        return;
+      }
+
+      var clearButton = document.getElementById(CLEAR_BUTTON_ID);
+      if (!clearButton || !clearButton.parentNode) return;
+
+      if (!existing) {
+        existing = document.createElement("button");
+        existing.id = POSE_POINT_BUTTON_ID;
+        existing.type = "button";
+        existing.className = clearButton.className;
+        existing.setAttribute("data-testid", "toggle-pose-point-scale");
+        existing.style.marginRight = "8px";
+        existing.addEventListener("click", function(event) {
+          event.preventDefault();
+          event.stopPropagation();
+          togglePosePointScale();
+        });
+        clearButton.parentNode.insertBefore(existing, clearButton.nextSibling);
+      }
+
+      updatePosePointButtonState(applyPosePointScale());
+    }
+
+    function installDetectionBoxVisibilityButton() {
+      var existing = document.getElementById(DETECTION_BOX_BUTTON_ID);
+
+      if (!isDetectionBoxVisibilityContext()) {
+        if (existing) existing.remove();
+        return;
+      }
+
+      var clearButton = document.getElementById(CLEAR_BUTTON_ID);
+      if (!clearButton || !clearButton.parentNode) return;
+
+      if (!existing) {
+        existing = document.createElement("button");
+        existing.id = DETECTION_BOX_BUTTON_ID;
+        existing.type = "button";
+        existing.className = clearButton.className;
+        existing.setAttribute("data-testid", "toggle-detection-box-visibility");
+        existing.style.marginRight = "8px";
+        existing.addEventListener("click", function(event) {
+          event.preventDefault();
+          event.stopPropagation();
+          toggleDetectionBoxVisibility();
+        });
+        clearButton.parentNode.insertBefore(existing, clearButton);
+      }
+
+      syncDetectionBoxVisibilityWithSelectedTool();
+      updateDetectionBoxButtonState(applyDetectionBoxVisibility(false));
+    }
+
+    function watchClearAnnotationButton() {
+      if (clearButtonObserver) return;
+
+      clearButtonObserver = new MutationObserver(function() {
+        window.requestAnimationFrame(function() {
+          installClearAnnotationButton();
+          installPosePointScaleButton();
+          installDetectionBoxVisibilityButton();
+        });
+      });
+      clearButtonObserver.observe(document.body, {
+        childList: true,
+        subtree: true,
+        attributes: true,
+        attributeFilter: ["class"]
+      });
+      window.setInterval(function() {
+        installClearAnnotationButton();
+        installPosePointScaleButton();
+        installDetectionBoxVisibilityButton();
+      }, 250);
+      installClearAnnotationButton();
+      installPosePointScaleButton();
+      installDetectionBoxVisibilityButton();
+    }
+
+    function hasBlockingAnnotationIssue() {
+      var app = getApp();
+      var annotation = app && app.annotationStore ? app.annotationStore.selected : null;
+
+      if (!app || !annotation) return false;
+      if (annotation.hasIncompletePolygons) return true;
+      if (app.overlapReached === true) return true;
+      if (typeof app.hasInterface === "function" &&
+        app.hasInterface("annotations:deny-empty") &&
+        getResultCount(annotation) === 0) return true;
+
+      return false;
+    }
+
+    function annotationHasPendingChanges() {
+      var app = getApp();
+      var annotation = app && app.annotationStore ? app.annotationStore.selected : null;
+
+      if (!annotation) return false;
+      if (annotation.localUpdate) return true;
+      if (annotation.draftId || annotation.versions && annotation.versions.draft) return true;
+      if (annotation.history && annotation.history.canUndo) return true;
+
+      return false;
+    }
+
+    function findFirstButton(testIds) {
+      for (var i = 0; i < testIds.length; i++) {
+        var button = document.querySelector('[data-testid="' + testIds[i] + '"]');
+
+        if (button) return button;
+      }
+      return null;
+    }
+
+    function clickTaskButton(testId) {
+      var button = document.querySelector('[data-testid="' + testId + '"]');
+
+      if (!button) return null;
+      if (isDisabled(button)) return false;
+      button.click();
+      return true;
+    }
+
+    function waitForSubmitToFinish(oldTaskId) {
+      return new Promise(function(resolve) {
+        var startedAt = Date.now();
+        var sawSubmitting = false;
+        var interval = window.setInterval(function() {
+          var app = getApp();
+          var taskId = getTaskId();
+
+          if (oldTaskId !== null && taskId !== null && taskId !== oldTaskId) {
+            window.clearInterval(interval);
+            resolve("task-changed");
+            return;
+          }
+
+          if (app && app.isSubmitting) {
+            sawSubmitting = true;
+            return;
+          }
+
+          if (sawSubmitting && app && !app.isSubmitting) {
+            window.clearInterval(interval);
+            resolve("saved");
+            return;
+          }
+
+          if (Date.now() - startedAt > 6000) {
+            window.clearInterval(interval);
+            resolve(sawSubmitting ? "timeout-after-start" : "not-started");
+          }
+        }, 20);
+      });
+    }
+
+    async function submitCurrentTaskIfNeeded() {
+      var submitButton = findFirstButton(["bottombar-submit-button", "bottombar-accept-button"]);
+      var updateButton = findFirstButton(["bottombar-update-button"]);
+
+      if (!submitButton && updateButton && annotationHasPendingChanges()) {
+        submitButton = updateButton;
+      }
+
+      if (!submitButton) return !hasBlockingAnnotationIssue();
+
+      if (isDisabled(submitButton)) {
+        return !hasBlockingAnnotationIssue();
+      }
+
+      var oldTaskId = getTaskId();
+      submitButton.click();
+
+      var result = await waitForSubmitToFinish(oldTaskId);
+      return result === "saved" || result === "task-changed";
+    }
+
+    function runDataManagerTaskAction(direction) {
+      var dm = getDataManagerStore();
+      var dataStore = dm && dm.dataStore;
+      var list = dataStore && dataStore.list ? Array.prototype.slice.call(dataStore.list) : [];
+      var current = dataStore && (dataStore.highlighted || dataStore.selected);
+      var currentId = current && current.id ? current.id : getTaskId();
+      var index = list.findIndex(function(item) {
+        return item && item.id === currentId;
+      });
+
+      if (!dm || !dataStore || !list.length || typeof dm.startLabeling !== "function") {
+        return false;
+      }
+
+      if (index < 0) {
+        index = list.findIndex(function(item) {
+          return item && item.isSelected;
+        });
+      }
+
+      if (index < 0) {
+        index = direction === "prev" ? list.length : -1;
+      }
+
+      var nextIndex = direction === "prev" ? Math.max(0, index - 1) : Math.min(list.length - 1, index + 1);
+      var task = list[nextIndex];
+
+      if (!task || task.isSelected) return false;
+      dm.startLabeling(task);
+      return true;
+    }
+
+    function runTaskAction(direction) {
+      if (isDataManagerMode() && runDataManagerTaskAction(direction)) return true;
+
+      var clickResult = clickTaskButton(direction === "prev" ? "prev-task" : "next-task");
+      var app = window.Htx;
+
+      if (clickResult !== null) return clickResult;
+      if (!app) return false;
+
+      if (direction === "prev" && app.canGoPrevTask && typeof app.prevTask === "function") {
+        app.prevTask();
+        return true;
+      }
+
+      if (direction === "next") {
+        if (app.canGoNextTask && typeof app.nextTask === "function") {
+          app.nextTask();
+          return true;
+        }
+
+        if (typeof app.hasInterface === "function" && app.hasInterface("postpone") && typeof app.postponeTask === "function") {
+          app.postponeTask();
+          return true;
+        }
+      }
+
+      return false;
+    }
+
+    async function handleTaskShortcut(direction, shouldSave) {
+      if (shortcutInProgress) return;
+      shortcutInProgress = true;
+
+      try {
+        if (!shouldSave) {
+          runTaskAction(direction);
+          return;
+        }
+
+        var oldTaskId = getTaskId();
+        var canContinue = await submitCurrentTaskIfNeeded();
+
+        if (!canContinue) return;
+        if (oldTaskId !== null && getTaskId() !== null && getTaskId() !== oldTaskId) return;
+
+        if (isDataManagerMode()) {
+          runDataManagerTaskAction("next");
+        } else {
+          runTaskAction("next");
+        }
+      } finally {
+        await sleep(150);
+        shortcutInProgress = false;
+      }
+    }
+
+    document.addEventListener("keydown", function(event) {
+      var key = event.key && event.key.toLowerCase();
+      var code = event.code;
+      var keyCode = event.keyCode || event.which;
+
+      if (!event.ctrlKey && !event.altKey && !event.metaKey && !event.shiftKey &&
+        !isEditableTarget(event.target) &&
+        (code === "ArrowLeft" || key === "arrowleft" || keyCode === 37 ||
+          code === "ArrowRight" || key === "arrowright" || keyCode === 39)) {
+        var direction = code === "ArrowLeft" || key === "arrowleft" || keyCode === 37 ? -1 : 1;
+
+        if (stepVideoFrame(direction)) {
+          event.preventDefault();
+          event.stopImmediatePropagation();
+          return;
+        }
+      }
+
+      if (event.repeat || event.ctrlKey || event.altKey || event.metaKey) return;
+
+      if (!isEditableTarget(event.target) &&
+        (code === "KeyH" || key === "h" || keyCode === 72) &&
+        isDetectionBoxVisibilityContext()) {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        toggleDetectionBoxVisibility();
+      } else if (code === "KeyA" || key === "a" || keyCode === 65) {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        handleTaskShortcut("prev", false);
+      } else if (code === "KeyD" || key === "d" || keyCode === 68) {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        handleTaskShortcut("next", false);
+      } else if (code === "Space" || key === " " || key === "spacebar" || keyCode === 32) {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        handleTaskShortcut("next", true);
+      }
+    }, true);
+
+    if (document.readyState === "loading") {
+      document.addEventListener("DOMContentLoaded", watchClearAnnotationButton);
+    } else {
+      watchClearAnnotationButton();
+    }
+  })();
+</script>

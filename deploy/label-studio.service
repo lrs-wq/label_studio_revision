@@ -1,0 +1,22 @@
+[Unit]
+Description=Label Studio
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/root/label_studio
+Environment=PROJECT_ROOT=/root/label_studio
+Environment=DATA_ROOT=/data/label_studio
+Environment=LISTEN_HOST=127.0.0.1
+Environment=PUBLIC_HOST=https://ai.hzzootech.com
+Environment=CSRF_TRUSTED_ORIGINS=https://ai.hzzootech.com
+Environment=PORT=8090
+ExecStart=/root/label_studio/deploy/start-label-studio.sh
+Restart=always
+RestartSec=5
+TimeoutStartSec=240
+LimitNOFILE=65535
+
+[Install]
+WantedBy=multi-user.target

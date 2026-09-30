@@ -1,0 +1,20 @@
+[Unit]
+Description=Label Studio YOLO Detection Backend
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/root/label_studio/yolo_ls_backend
+Environment=MODEL_PATH=/data/label_studio/models/cat_feeding_head_v7_yolo26s_tune2_200e_b32_wandb.pt
+Environment=MODEL_VERSION=cat_feeding_head_v7_yolo26s_tune2_200e_b32_wandb
+Environment=LABEL_STUDIO_DATA_DIR=/root/label_studio/label_studio_data
+Environment=LOCAL_FILES_DOCUMENT_ROOT=/data/label_studio/local_files
+Environment=CONFIDENCE_THRESHOLD=0.25
+ExecStart=/root/label_studio/.venv-yolo/bin/gunicorn --bind 127.0.0.1:9090 --workers 1 --threads 2 --timeout 180 app:app
+Restart=always
+RestartSec=5
+TimeoutStartSec=600
+
+[Install]
+WantedBy=multi-user.target
