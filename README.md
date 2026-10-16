@@ -1,5 +1,12 @@
 # Label Studio 标注工作台
 
+## 许可证与商业使用 / License and commercial use
+
+**本仓库中维护者有权许可的原创内容采用 [PolyForm Noncommercial 1.0.0](LICENSE)，仅许可非商业用途；商业使用须另行取得书面授权。**
+第三方内容、必须保留上游许可的部分及旧版本已授予的权利不受此变更覆盖。详见 [版权与第三方声明](COPYRIGHT.md)。
+
+Original material the maintainer is entitled to license is available for noncommercial purposes under [PolyForm Noncommercial 1.0.0](LICENSE). Commercial use requires separate written permission. Third-party and previously granted rights are preserved; see [COPYRIGHT.md](COPYRIGHT.md).
+
 这个仓库保存服务器上的 Label Studio 定制代码、Windows / Linux 部署脚本、YOLO 预标注后端，以及围绕猫和狗数据集的导入、清洗、预标注和导出脚本。
 
 本仓库只上传代码、配置和说明文档。图片、视频、标注数据、数据库、模型权重、密钥、日志、缓存和备份不上传；相关目录及文件类型由 `.gitignore` 排除。
