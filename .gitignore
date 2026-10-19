@@ -111,3 +111,7 @@ outputs/
 *.gz
 *.bz2
 *.xz
+
+# Selected README documentation assets only
+!/docs/showcase/workflow.svg
+!/docs/showcase/annotation-preview.gif

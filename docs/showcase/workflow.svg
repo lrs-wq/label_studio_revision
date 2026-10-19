@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="340" viewBox="0 0 1200 340" role="img" aria-labelledby="title desc">
+<title id="title">预标注 → 人工校对 → 数据导出</title><desc id="desc">围绕猫狗检测与姿态数据的 Label Studio 定制工作流；素材与项目 → 模型预标注 → 人工校对 → 导出与复查</desc>
+<rect width="1200" height="340" rx="20" fill="#f8fafc"/>
+<style>text{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','PingFang SC','Microsoft YaHei',sans-serif}.title{font-size:30px;font-weight:700;fill:#172b40}.sub{font-size:17px;fill:#536477}.label{font-size:22px;font-weight:650;fill:#172b40}.small{font-size:16px;fill:#536477}</style>
+<rect x="36" y="34" width="5" height="32" rx="2" fill="#95602e"/><text class="title" x="57" y="61">预标注 → 人工校对 → 数据导出</text>
+<text class="sub" x="37" y="94">围绕猫狗检测与姿态数据的 Label Studio 定制工作流</text>
+<rect x="36" y="126" width="252" height="138" rx="12" fill="white" stroke="#dbe3eb"/><circle cx="64" cy="154" r="13" fill="#95602e"/><text x="64" y="160" text-anchor="middle" fill="white" font-size="16">1</text><text class="label" x="56" y="197">素材与项目</text><text class="small" x="56" y="225">导入图片 / 视频</text><text class="small" x="56" y="248">建立标签配置</text>
+<path d="M296 193h22m-7-7 7 7-7 7" fill="none" stroke="#95602e" stroke-width="3"/>
+<rect x="328" y="126" width="252" height="138" rx="12" fill="white" stroke="#dbe3eb"/><circle cx="356" cy="154" r="13" fill="#95602e"/><text x="356" y="160" text-anchor="middle" fill="white" font-size="16">2</text><text class="label" x="348" y="197">模型预标注</text><text class="small" x="348" y="225">检测框与姿态关键点</text><text class="small" x="348" y="248">独立 ML Backend</text>
+<path d="M588 193h22m-7-7 7 7-7 7" fill="none" stroke="#95602e" stroke-width="3"/>
+<rect x="620" y="126" width="252" height="138" rx="12" fill="white" stroke="#dbe3eb"/><circle cx="648" cy="154" r="13" fill="#95602e"/><text x="648" y="160" text-anchor="middle" fill="white" font-size="16">3</text><text class="label" x="640" y="197">人工校对</text><text class="small" x="640" y="225">移动关键点与检查遮挡</text><text class="small" x="640" y="248">0 / 1 / 2 可见性</text>
+<path d="M880 193h22m-7-7 7 7-7 7" fill="none" stroke="#95602e" stroke-width="3"/>
+<rect x="912" y="126" width="252" height="138" rx="12" fill="white" stroke="#dbe3eb"/><circle cx="940" cy="154" r="13" fill="#95602e"/><text x="940" y="160" text-anchor="middle" fill="white" font-size="16">4</text><text class="label" x="932" y="197">导出与复查</text><text class="small" x="932" y="225">YOLO Pose 等格式</text><text class="small" x="932" y="248">保留关键点顺序</text>
+<text class="small" x="37" y="307">项目补丁提供 A / D / Space 操作；离线交互页为说明性示意，不连接真实标注数据库。</text></svg>

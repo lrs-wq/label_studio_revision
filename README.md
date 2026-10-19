@@ -1,15 +1,28 @@
 # Label Studio 标注工作台
 
-## 许可证与商业使用 / License and commercial use
-
-**本仓库中维护者有权许可的原创内容采用 [PolyForm Noncommercial 1.0.0](LICENSE)，仅许可非商业用途；商业使用须另行取得书面授权。**
-第三方内容、必须保留上游许可的部分及旧版本已授予的权利不受此变更覆盖。详见 [版权与第三方声明](COPYRIGHT.md)。
-
-Original material the maintainer is entitled to license is available for noncommercial purposes under [PolyForm Noncommercial 1.0.0](LICENSE). Commercial use requires separate written permission. Third-party and previously granted rights are preserved; see [COPYRIGHT.md](COPYRIGHT.md).
-
 这个仓库保存服务器上的 Label Studio 定制代码、Windows / Linux 部署脚本、YOLO 预标注后端，以及围绕猫和狗数据集的导入、清洗、预标注和导出脚本。
 
-本仓库只上传代码、配置和说明文档。图片、视频、标注数据、数据库、模型权重、密钥、日志、缓存和备份不上传；相关目录及文件类型由 `.gitignore` 排除。
+## 标注流程预览
+
+![17点预标注、人工核对可见性和YOLO Pose导出的交互示意](docs/showcase/annotation-preview.gif)
+
+上图为文档附带的**离线交互示意**，用合成动物轮廓说明本仓库的 17 点顺序、`0 / 1 / 2` 可见性与导出数据；它不是 Label Studio 实际界面，也不运行预标注模型。
+
+## 工作流程
+
+![素材导入、模型预标注、人工校对与数据导出的工作流](docs/showcase/workflow.svg)
+
+## 项目演示
+
+- **离线体验**：克隆仓库后用浏览器打开 [label-demo.html](docs/showcase/label-demo.html)，依次点击“预标注” → “校对遮挡” → “查看导出”；还可直接点击关键点切换可见性。
+- **本地 HTTP 预览**：在仓库根目录运行 `python3 -m http.server 8080 --bind 127.0.0.1`，访问 `http://127.0.0.1:8080/docs/showcase/label-demo.html`。
+- **实际标注**：按下方部署说明启动 Label Studio 与所需后端，导入自己准备的样例，核对预标注和遮挡状态，再导出数据。模型、原图与标注数据库需单独准备。
+
+[查看演示边界、操作说明与对应源码](docs/showcase/README.md)。
+
+---
+
+本仓库保存代码、配置、说明文档及 `docs/showcase/` 中明确列出的精选展示文件。原始图片、视频、标注数据、数据库、模型权重、密钥、日志、缓存和备份不上传；相关目录及文件类型由 `.gitignore` 排除。
 
 ## 服务器代码快照
 
@@ -208,7 +221,7 @@ Invoke-RestMethod -Uri 'http://127.0.0.1:9090/health' | ConvertTo-Json -Depth 5
 - `pip_cache/`：Python 包缓存
 - `cat_video_assets/`：视频素材和大文件
 - `/data/label_studio/`：外部媒体、素材、模型和本地文件
-- 图片、视频、音频、标注导出文件和模型权重
+- 除 `docs/showcase/` 明确列出的文档展示素材外，其他图片、视频、音频、标注导出文件和模型权重
 - `.env`、密钥、证书、数据库、日志、备份文件和 Python 编译产物
 
 如需共享数据集或模型，请使用独立的数据/模型存储，不要直接放入当前 Git 仓库。
@@ -234,3 +247,10 @@ git push
 更多历史运行状态、项目 ID、模型版本和排障记录见 `LABEL_STUDIO_CONTEXT.md`。
 
 本次导入只包含服务器当前的代码和文档快照，不导入旧仓库的 Git 历史，避免历史提交夹带数据文件。后续提交前应检查暂存清单，确认只包含代码、配置及文档。
+
+## 许可证与商业使用 / License and commercial use
+
+**本仓库中维护者有权许可的原创内容采用 [PolyForm Noncommercial 1.0.0](LICENSE)，仅许可非商业用途；商业使用须另行取得书面授权。**
+第三方内容、必须保留上游许可的部分及旧版本已授予的权利不受此变更覆盖。详见 [版权与第三方声明](COPYRIGHT.md)。
+
+Original material the maintainer is entitled to license is available for noncommercial purposes under [PolyForm Noncommercial 1.0.0](LICENSE). Commercial use requires separate written permission. Third-party and previously granted rights are preserved; see [COPYRIGHT.md](COPYRIGHT.md).
